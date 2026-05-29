@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "/root/.npm/_npx/9833c18b2d85bc59/node_modules/.bin/playwright-mcp",
+      "args": ["--cdp-endpoint", "http://localhost:9231", "--shared-browser-context"]
+    }
+  }
+}

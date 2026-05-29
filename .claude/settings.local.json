@@ -1,0 +1,51 @@
+{
+  "enableAllProjectMcpServers": true,
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Save(*)",
+      "WebSearch",
+      "WebFetch(domain:apisupport.myob.com)",
+      "WebFetch(domain:developer.myob.com)",
+      "WebFetch(domain:support.databuzz.com.au)",
+      "mcp__playwright__browser_*",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_tabs",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_press_key",
+      "Skill(update-config)",
+      "mcp__playwright__browser_fill_form",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_console_messages",
+      "Bash(cat)",
+      "Read(//root/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/adlux-safety-hook"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__playwright__browser_take_screenshot",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"\nimport json, sys\nfrom datetime import datetime, timezone\ndata = json.load(sys.stdin)\ninp = data.get('tool_input', {})\nfname = inp.get('filename', '')\nimg_type = inp.get('type', 'png')\nif not fname:\n    ts = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H-%M-%S')\n    inp['filename'] = f'playwright-screenshots/page-{ts}.{img_type}'\nelif not fname.startswith('playwright-screenshots/'):\n    inp['filename'] = 'playwright-screenshots/' + fname\nelse:\n    print('{}')\n    sys.exit(0)\nprint(json.dumps({'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'updatedInput': inp}}))\n\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
