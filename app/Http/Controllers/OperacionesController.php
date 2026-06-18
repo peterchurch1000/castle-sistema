@@ -263,6 +263,7 @@ class OperacionesController extends Controller
     /** Bucketed totals (overdue vs within-timeframe) for all open SO lines still to deliver. */
     private function fetchDeliverySplit(): ?array
     {
+        $eom = Carbon::now()->endOfMonth()->format('d/m/Y');
         $rows = $this->suiteqlQuery(
             "SELECT " .
             "CASE WHEN tl.custcol_3k_fecha_envio_cumplimiento < TRUNC(SYSDATE) THEN 'overdue' ELSE 'ontime' END AS bucket, " .
@@ -275,6 +276,7 @@ class OperacionesController extends Controller
             "AND (ABS(tl.quantity) - NVL(tl.quantityshiprecv,0)) > 0 " .
             "AND t.status NOT IN ('C','G','H') " .
             "AND tl.custcol_3k_fecha_envio_cumplimiento IS NOT NULL " .
+            "AND tl.custcol_3k_fecha_envio_cumplimiento <= TO_DATE('{$eom}','DD/MM/YYYY') " .
             "GROUP BY CASE WHEN tl.custcol_3k_fecha_envio_cumplimiento < TRUNC(SYSDATE) THEN 'overdue' ELSE 'ontime' END"
         );
 
@@ -302,6 +304,7 @@ class OperacionesController extends Controller
     /** Same split broken down by primary sales rep, for the detail table. */
     private function fetchDeliverySplitByRep(): array
     {
+        $eom = Carbon::now()->endOfMonth()->format('d/m/Y');
         $rows = $this->suiteqlQuery(
             "SELECT BUILTIN.DF(tst.employee) AS rep, " .
             "ROUND(SUM(CASE WHEN tl.custcol_3k_fecha_envio_cumplimiento < TRUNC(SYSDATE) " .
@@ -317,6 +320,7 @@ class OperacionesController extends Controller
             "AND (ABS(tl.quantity) - NVL(tl.quantityshiprecv,0)) > 0 " .
             "AND t.status NOT IN ('C','G','H') " .
             "AND tl.custcol_3k_fecha_envio_cumplimiento IS NOT NULL " .
+            "AND tl.custcol_3k_fecha_envio_cumplimiento <= TO_DATE('{$eom}','DD/MM/YYYY') " .
             "GROUP BY BUILTIN.DF(tst.employee)"
         );
 
