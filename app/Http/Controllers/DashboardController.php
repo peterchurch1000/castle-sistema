@@ -22,6 +22,7 @@ class DashboardController extends Controller
         8502  => 'Leandro Coviello',
         43137 => 'Alexa Pieroni',
         69678 => 'Andrés Capiglioni',
+        5440  => 'Bianca James',
     ];
 
     // Name aliases: NetSuite/Salesforce variant → canonical
@@ -80,7 +81,7 @@ class DashboardController extends Controller
             ->get()->keyBy('rep_name');
 
         // Unified rep list from all four sources, same order for both charts
-        $excludeReps = ['Equipo AT Vault', 'Roy James', 'Luciano Tabares', 'Cesar Cusit', 'Bianca James', 'Gianni Pollard', 'Sandra Berdini'];
+        $excludeReps = ['Equipo AT Vault', 'Roy James', 'Luciano Tabares', 'Cesar Cusit', 'Gianni Pollard', 'Sandra Berdini'];
         $allReps = $quotas->keys()
             ->merge($salesData->keys())
             ->merge($activityData->keys())
