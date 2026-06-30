@@ -138,6 +138,13 @@ class DashboardController extends Controller
             ];
         })->values();
 
+        // Reps that count toward the header-card totals but are hidden from the
+        // per-rep charts: Bianca's invoiced sales roll up into the totals but she
+        // is not drawn as a bar; same for the dashboard owner.
+        $chartHidden   = ['Bianca James', 'Peter Church'];
+        $salesChart    = $chartData->reject(fn($d) => in_array($d['rep'], $chartHidden))->values();
+        $activityChart = $activityChartData->reject(fn($d) => in_array($d['rep'], $chartHidden))->values();
+
         $lastRefreshed = DB::table('sales_data')
             ->where('year', $year)->where('month', $month)
             ->max('fetched_at');
@@ -159,7 +166,8 @@ class DashboardController extends Controller
 
         return view('dashboard', compact(
             'chartData', 'lastRefreshed', 'paceRatio', 'month', 'year',
-            'activityChartData', 'activityLastRefreshed', 'quotaLastRefreshed', 'gp', 'pipeline'
+            'activityChartData', 'activityLastRefreshed', 'quotaLastRefreshed', 'gp', 'pipeline',
+            'salesChart', 'activityChart'
         ));
     }
 
@@ -695,8 +703,11 @@ class DashboardController extends Controller
      *
      * Model (validated to the cent against cr=270 for June 2026):
      *  - Posting AR transactions: Invoices (CustInvc) minus Credit Memos (CustCred)
-     *  - USD-currency only (the report's "US Dollar Accounting" book; ARS/EUR/CAD excluded)
-     *  - Net of tax: sum item lines (taxline='F', mainline='F'); tax lines excluded
+     *  - Revenue only: item lines posting to an Income account (taxline='F',
+     *    mainline='F'); tax lines and non-sales postings such as bounced-cheque
+     *    re-invoices (OthCurrAsset) or manual compensation credits (Equity) excluded
+     *  - All currencies converted to USD at NetSuite's consolidated period rate
+     *    (consolidatedUsdFactors) -- the same basis the report uses to show ARS in USD
      *  - Weighted by each rep's sales-team contribution (so split credit is honoured
      *    and secondary reps get only their share). Invoice item lines are stored
      *    negative and credit-memo lines positive, so the signed SUM nets correctly;
@@ -710,21 +721,33 @@ class DashboardController extends Controller
         $next    = Carbon::create($year, $month, 1)->addMonth();
         $nextStr = sprintf('01/%02d/%04d', $next->month, $next->year);
 
+        // Per-currency factors that convert a transaction's foreign amount into USD
+        // using NetSuite's consolidated period rate -- the same basis the USD reports
+        // (e.g. cr=270 "Sales by Sales Rep") use to present ARS invoices in USD.
+        $usdFactor = $this->consolidatedUsdFactors($year, $month);
+
         $rows = $this->suiteqlQuery(
-            "SELECT tst.employee AS employee, SUM(net.amt * tst.contribution) AS tot " .
+            "SELECT tst.employee AS employee, cur.symbol AS cur, SUM(net.amt * tst.contribution) AS tot " .
             "FROM transactionsalesteam tst " .
             "JOIN (" .
             "  SELECT tl.transaction AS tid, SUM(tl.foreignamount) AS amt " .
             "  FROM transactionline tl " .
             "  JOIN transaction t ON t.id = tl.transaction " .
+            "  JOIN account a ON a.id = tl.account " .
             "  WHERE t.type IN ('CustInvc','CustCred') " .
-            "  AND t.currency = (SELECT id FROM currency WHERE symbol = 'USD') " .
             "  AND t.trandate >= TO_DATE('{$first}','DD/MM/YYYY') " .
             "  AND t.trandate < TO_DATE('{$nextStr}','DD/MM/YYYY') " .
             "  AND tl.taxline = 'F' AND tl.mainline = 'F' " .
+            // Count only revenue lines -- the same basis as the cr=270 "Sales by
+            // Sales Rep" report. Excludes non-income postings such as bounced-cheque
+            // re-invoices (Cheques Rechazados / OthCurrAsset) and manual compensation
+            // credits (Opening Balance / Equity), which are not real sales.
+            "  AND a.accttype = 'Income' " .
             "  GROUP BY tl.transaction" .
             ") net ON net.tid = tst.transaction " .
-            "GROUP BY tst.employee"
+            "JOIN transaction t2 ON t2.id = tst.transaction " .
+            "JOIN currency cur ON cur.id = t2.currency " .
+            "GROUP BY tst.employee, cur.symbol"
         );
 
         if ($rows === null) {
@@ -738,11 +761,73 @@ class DashboardController extends Controller
             if (!$repName) {
                 continue; // employee not a tracked sales rep
             }
+            $cur    = $row['cur'] ?? 'USD';
+            $factor = $usdFactor[$cur] ?? null;
+            if ($factor === null) {
+                // No consolidated rate for this currency: keep USD as-is, but skip
+                // anything else rather than report an un-converted (inflated) figure.
+                if ($cur !== 'USD') {
+                    Log::warning('fetchInvoiced: no USD rate for currency, skipping', ['cur' => $cur, 'period' => "{$month}/{$year}"]);
+                    continue;
+                }
+                $factor = 1.0;
+            }
             $repName = $this->normalizeName($repName);
             // Item lines are negative for invoices; flip so sales read positive.
-            $out[$repName] = ($out[$repName] ?? 0) - (float) ($row['tot'] ?? 0);
+            $out[$repName] = ($out[$repName] ?? 0) - (float) ($row['tot'] ?? 0) * $factor;
         }
         return $out;
+    }
+
+    /**
+     * Per-currency multipliers that convert a transaction's foreign amount into USD
+     * using NetSuite's consolidated period rate -- the same basis as the USD reports
+     * (e.g. cr=270). Returns [currencySymbol => factor] with usdValue = foreignAmount
+     * * factor; USD maps to 1.0.
+     *
+     * consolidatedexchangerate stores, per period, the average rate from each currency
+     * to the base subsidiary currency (ARS here): averagerate = ARS per 1 unit of the
+     * fromcurrency. So factor = (ARS per unit) / (ARS per USD). Returns [] if the
+     * lookup fails, in which case fetchInvoiced falls back to USD-only.
+     */
+    private function consolidatedUsdFactors(int $year, int $month): array
+    {
+        $first   = sprintf('01/%02d/%04d', $month, $year);
+        $next    = Carbon::create($year, $month, 1)->addMonth();
+        $nextStr = sprintf('01/%02d/%04d', $next->month, $next->year);
+
+        $rows = $this->suiteqlQuery(
+            "SELECT cf.symbol AS sym, cer.averagerate AS rate " .
+            "FROM consolidatedexchangerate cer " .
+            "JOIN currency cf ON cf.id = cer.fromcurrency " .
+            "WHERE cer.tocurrency = (SELECT id FROM currency WHERE symbol = 'ARS') " .
+            "AND cer.accountingbook = 1 " .
+            "AND cer.periodstartdate >= TO_DATE('{$first}','DD/MM/YYYY') " .
+            "AND cer.periodstartdate < TO_DATE('{$nextStr}','DD/MM/YYYY')"
+        );
+        if (!$rows) {
+            return [];
+        }
+
+        $arsPer = [];
+        foreach ($rows as $r) {
+            $sym = $r['sym'] ?? null;
+            if ($sym !== null) {
+                $arsPer[$sym] = (float) ($r['rate'] ?? 0);
+            }
+        }
+        $arsPerUsd = $arsPer['USD'] ?? 0.0;
+        if ($arsPerUsd <= 0) {
+            return [];
+        }
+
+        $factors = ['USD' => 1.0];
+        foreach ($arsPer as $sym => $rate) {
+            if ($rate > 0) {
+                $factors[$sym] = $rate / $arsPerUsd;
+            }
+        }
+        return $factors;
     }
 
     /**

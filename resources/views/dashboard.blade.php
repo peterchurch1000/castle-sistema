@@ -258,7 +258,7 @@
     </div>
     <div class="stat-card">
         <div class="stat-row">
-            <span class="label">Vendido no facturado</span>
+            <span class="label">No facturado</span>
             @if($gpFmt('sold'))<span class="label gp-label">GP%</span>@endif
         </div>
         <div class="stat-row">
@@ -300,7 +300,7 @@
     </div>
     <div class="stat-card">
         <div class="stat-row">
-            <span class="label">Vendido no facturado ({{ $mesProx }})</span>
+            <span class="label">No facturado ({{ $mesProx }})</span>
             @if($gpFmt('sold_next'))<span class="label gp-label">GP%</span>@endif
         </div>
         <div class="stat-row">
@@ -376,8 +376,8 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const chartData         = @json($chartData);
-const activityChartData = @json($activityChartData);
+const chartData         = @json($salesChart);
+const activityChartData = @json($activityChart);
 const pacePercent       = {{ $pacePercent }};
 const hasActivity       = {{ $hasActivity ? 'true' : 'false' }};
 
