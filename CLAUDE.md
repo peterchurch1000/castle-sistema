@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Response style
+
+Answer in the minimum number of words possible — aim for under 30 words by default. Lead with the answer, skip preamble. Longer replies are fine only when the subject genuinely cannot be explained briefly (e.g. multi-step instructions or a conceptual explanation the user asked to understand).
+
 ## Commands
 
 ```bash
