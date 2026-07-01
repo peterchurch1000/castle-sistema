@@ -338,52 +338,40 @@ class DashboardController extends Controller
             "GROUP BY CreatedBy.Name"
         );
 
-        // Calls — completed calls only ('R - LLAMADA%' covers 'R - LLAMADA' and 'R - LLAMADA WOT').
-        // Pending call tasks ('T - LLAMAR') are excluded to match the Actividades CE/CN reports.
-        $callRecs = $this->sfQuery($token,
-            "SELECT Owner.Name, COUNT(Id) callCount FROM Task " .
-            "WHERE Subject LIKE 'R - LLAMADA%' " .
-            "AND ActivityDate >= {$firstDay} AND ActivityDate <= {$lastDay} " .
-            "GROUP BY Owner.Name"
+        // Calls, meetings, WhatsApp and LinkedIn are all completed Task records that
+        // differ only by Subject prefix. Subject is not groupable in SOQL, so they are
+        // fetched in one flat query and counted per rep by prefix in PHP below — replacing
+        // four near-identical SOQL calls with one (sfQuery pages through large results).
+        //   'R - LLAMADA%'           → calls    (excl. pending 'T - LLAMAR')
+        //   'R - MINUTA DE REUNION%' → visits   (presencial + virtual)
+        //   'R - WA%'                → whatsapp
+        //   'R - LINKEDIN%'          → linkedin
+        $taskRecs = $this->sfQuery($token,
+            "SELECT Owner.Name, Subject FROM Task " .
+            "WHERE (Subject LIKE 'R - LLAMADA%' OR Subject LIKE 'R - MINUTA DE REUNION%' " .
+            "OR Subject LIKE 'R - WA%' OR Subject LIKE 'R - LINKEDIN%') " .
+            "AND ActivityDate >= {$firstDay} AND ActivityDate <= {$lastDay}"
         );
 
-        // Visits / Meetings — completed meeting minutes only, matching the reports'
-        // 'R - MINUTA DE REUNION%' subjects (presencial + virtual). The old broad
-        // '%REUNI%'/'%VISITA%' match over-counted.
-        $visitRecs = $this->sfQuery($token,
-            "SELECT Owner.Name, COUNT(Id) visitCount FROM Task " .
-            "WHERE Subject LIKE 'R - MINUTA DE REUNION%' " .
-            "AND ActivityDate >= {$firstDay} AND ActivityDate <= {$lastDay} " .
-            "GROUP BY Owner.Name"
-        );
-
-        // WhatsApp — completed/logged outgoing WhatsApp touches ('R - WA%' covers 'R - WA' and 'R - WA WOT').
-        $waRecs = $this->sfQuery($token,
-            "SELECT Owner.Name, COUNT(Id) waCount FROM Task " .
-            "WHERE Subject LIKE 'R - WA%' " .
-            "AND ActivityDate >= {$firstDay} AND ActivityDate <= {$lastDay} " .
-            "GROUP BY Owner.Name"
-        );
-
-        // LinkedIn — completed/logged outgoing LinkedIn messages ('R - LINKEDIN%').
-        $liRecs = $this->sfQuery($token,
-            "SELECT Owner.Name, COUNT(Id) liCount FROM Task " .
-            "WHERE Subject LIKE 'R - LINKEDIN%' " .
-            "AND ActivityDate >= {$firstDay} AND ActivityDate <= {$lastDay} " .
-            "GROUP BY Owner.Name"
-        );
-
-        if ($emailRecs === null || $callRecs === null || $visitRecs === null
-            || $waRecs === null || $liRecs === null) {
+        if ($emailRecs === null || $taskRecs === null) {
             return response()->json(['error' => 'Salesforce SOQL query failed — check logs'], 500);
         }
 
-        // Activity_Target__c quotas for current year (month matched in PHP)
-        $quotaRecs = $this->sfQuery($token,
-            "SELECT User__r.Name, Month__c, Year__c, " .
-            "Calls_Target__c, Emails_Target__c, Visits_Target__c " .
-            "FROM Activity_Target__c WHERE Year__c = {$year}"
-        );
+        // Activity_Target__c quotas for the current year (month matched in PHP).
+        // Objectives change ~monthly, so the result is cached for 6h to avoid querying
+        // Salesforce on every activity refresh. Empty/failed results are not cached, and
+        // clearing cache key "sf_quota_{$year}" forces an immediate reload.
+        $quotaRecs = Cache::get("sf_quota_{$year}");
+        if ($quotaRecs === null) {
+            $quotaRecs = $this->sfQuery($token,
+                "SELECT User__r.Name, Month__c, Year__c, " .
+                "Calls_Target__c, Emails_Target__c, Visits_Target__c " .
+                "FROM Activity_Target__c WHERE Year__c = {$year}"
+            );
+            if (!empty($quotaRecs)) {
+                Cache::put("sf_quota_{$year}", $quotaRecs, now()->addHours(6));
+            }
+        }
 
         // Build activity map keyed by rep name
         // Aggregate GROUP BY relationship fields flatten to the last segment (e.g. CreatedBy.Name → Name)
@@ -392,21 +380,19 @@ class DashboardController extends Controller
             $rep = $r['Name'] ?? $r['CreatedBy']['Name'] ?? null;
             if ($rep) $map[$rep]['emails'] = (int) ($r['emailCount'] ?? $r['expr0'] ?? 0);
         }
-        foreach ($callRecs as $r) {
+        foreach ($taskRecs as $r) {
             $rep = $r['Name'] ?? $r['Owner']['Name'] ?? null;
-            if ($rep) $map[$rep]['calls'] = (int) ($r['callCount'] ?? $r['expr0'] ?? 0);
-        }
-        foreach ($visitRecs as $r) {
-            $rep = $r['Name'] ?? $r['Owner']['Name'] ?? null;
-            if ($rep) $map[$rep]['visits'] = (int) ($r['visitCount'] ?? $r['expr0'] ?? 0);
-        }
-        foreach ($waRecs as $r) {
-            $rep = $r['Name'] ?? $r['Owner']['Name'] ?? null;
-            if ($rep) $map[$rep]['whatsapp'] = (int) ($r['waCount'] ?? $r['expr0'] ?? 0);
-        }
-        foreach ($liRecs as $r) {
-            $rep = $r['Name'] ?? $r['Owner']['Name'] ?? null;
-            if ($rep) $map[$rep]['linkedin'] = (int) ($r['liCount'] ?? $r['expr0'] ?? 0);
+            if (!$rep) continue;
+            $subj = $r['Subject'] ?? '';
+            if (str_starts_with($subj, 'R - LLAMADA')) {
+                $map[$rep]['calls'] = ($map[$rep]['calls'] ?? 0) + 1;
+            } elseif (str_starts_with($subj, 'R - MINUTA DE REUNION')) {
+                $map[$rep]['visits'] = ($map[$rep]['visits'] ?? 0) + 1;
+            } elseif (str_starts_with($subj, 'R - WA')) {
+                $map[$rep]['whatsapp'] = ($map[$rep]['whatsapp'] ?? 0) + 1;
+            } elseif (str_starts_with($subj, 'R - LINKEDIN')) {
+                $map[$rep]['linkedin'] = ($map[$rep]['linkedin'] ?? 0) + 1;
+            }
         }
 
         // Build quota map — handle picklist month as name or number
@@ -621,6 +607,13 @@ class DashboardController extends Controller
 
     private function getSalesforceToken(): ?string
     {
+        // Cache the client-credentials token (~50 min; the SF session lasts longer) so
+        // each refresh reuses it instead of re-authenticating. Failures are not cached,
+        // and sfQuery() busts this key on a 401 so a stale token self-heals next run.
+        $cached = Cache::get('sf_access_token');
+        if ($cached) {
+            return $cached;
+        }
         try {
             $response = Http::timeout(15)->asForm()->post(
                 config('integrations.salesforce.instance_url') . '/services/oauth2/token',
@@ -634,7 +627,11 @@ class DashboardController extends Controller
                 Log::error('SF token error', ['body' => $response->body()]);
                 return null;
             }
-            return $response->json('access_token');
+            $token = $response->json('access_token');
+            if ($token) {
+                Cache::put('sf_access_token', $token, now()->addMinutes(50));
+            }
+            return $token;
         } catch (\Exception $e) {
             Log::error('SF token exception', ['msg' => $e->getMessage()]);
             return null;
@@ -644,14 +641,31 @@ class DashboardController extends Controller
     private function sfQuery(string $token, string $soql): ?array
     {
         try {
+            $base = config('integrations.salesforce.instance_url');
             $response = Http::timeout(30)
                 ->withToken($token)
-                ->get(config('integrations.salesforce.instance_url') . '/services/data/v62.0/query', ['q' => $soql]);
+                ->get($base . '/services/data/v62.0/query', ['q' => $soql]);
             if (!$response->successful()) {
+                if ($response->status() === 401) {
+                    Cache::forget('sf_access_token');
+                }
                 Log::error('SF SOQL error', ['soql' => substr($soql, 0, 100), 'body' => $response->body()]);
                 return null;
             }
-            return $response->json('records') ?? [];
+            $records = $response->json('records') ?? [];
+            // Follow pagination so large result sets (e.g. a full month of Task rows)
+            // come back complete instead of truncated at the 2000-row first page.
+            while ($response->json('done') === false && $response->json('nextRecordsUrl')) {
+                $response = Http::timeout(30)
+                    ->withToken($token)
+                    ->get($base . $response->json('nextRecordsUrl'));
+                if (!$response->successful()) {
+                    Log::error('SF SOQL paging error', ['body' => $response->body()]);
+                    return null;
+                }
+                $records = array_merge($records, $response->json('records') ?? []);
+            }
+            return $records;
         } catch (\Exception $e) {
             Log::error('SF SOQL exception', ['msg' => $e->getMessage()]);
             return null;
