@@ -216,7 +216,6 @@
     // GP % per card (saved search 422 "% GP APROX"); null → not shown
     $gpFmt = fn($k) => !is_null($gp->get($k)) ? number_format($gp->get($k), 1) : null;
     $pipFmt = fn($n) => '$' . number_format($n / 1000, 1) . 'k';
-    $difotMes = $difot ? ucfirst($meses[$difot['mes']]) : '';
 @endphp
 
 <div class="header">
@@ -312,16 +311,6 @@
             @if($gpFmt('sold_next'))<span class="gp-val">{{ $gpFmt('sold_next') }}</span>@endif
         </div>
         <div class="sub">USD zona gris próx. mes</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-row"><span class="label">DIFOT de entrega ({{ $difotMes }})</span></div>
-        <div class="stat-row">
-            <span class="value" style="color: {{ !$difot || is_null($difot['pct']) ? '#8b949e' : ($difot['pct'] >= 90 ? '#3fb950' : ($difot['pct'] >= 75 ? '#d29922' : '#f85149')) }}">
-                {{ $difot && !is_null($difot['pct']) ? $difot['pct'] . '%' : '—' }}
-            </span>
-        </div>
-        <div class="sub">{{ $difot ? $difot['a_tiempo'] . '/' . $difot['evaluables'] . ' entregas a tiempo' : 'NetSuite no disponible' }}</div>
-        <div class="sub" style="color:#6e7681">{{ $difot && $difot['total_shipped'] > 0 ? $difot['con_real'] . '/' . $difot['total_shipped'] . ' con fecha real (' . round($difot['con_real'] / $difot['total_shipped'] * 100, 1) . '%)' : '' }}</div>
     </div>
     {{-- Ocultas temporalmente: cambiar $showActivityCards a true para volver a mostrarlas --}}
     @php($showActivityCards = false)

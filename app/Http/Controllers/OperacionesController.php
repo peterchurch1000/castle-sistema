@@ -55,7 +55,7 @@ class OperacionesController extends Controller
      */
     private function fetchDifot(): array
     {
-        return Cache::store('file')->remember('difot_kpis_v2', 600, function () {
+        return Cache::store('file')->remember('difot_kpis_v3', 600, function () {
             // On-time percent formula, per SO line, reproduced from the saved search
             // result column "Porcentaje de cumplimiento II".
             $caseProd =
@@ -154,8 +154,54 @@ class OperacionesController extends Controller
                 'cinta'       => $pick($cinta),
                 'operaciones' => $this->fetchDifotOperaciones(),
                 'compras'     => $pick($compras),
+                'entrega'     => $this->fetchDifotEntrega(),
             ];
         });
+    }
+
+    /**
+     * DIFOT de entrega — on-time delivery rate for the last complete calendar month.
+     * Scope: Sales Orders with an Actual Ship Date (actualshipdate) in that month.
+     * On time = real delivery date (custbody_tek_fecha_entrega) on or before the
+     * estimated delivery date (custbody_gep_fecha_entrega_estimado). Only orders with
+     * BOTH dates are evaluable; rate = a_tiempo / evaluables. Delivery dates lag, so
+     * this deliberately reports the last complete month, not the current one.
+     */
+    private function fetchDifotEntrega(): ?array
+    {
+        $now   = Carbon::now('America/Argentina/Buenos_Aires');
+        $som   = $now->copy()->subMonthNoOverflow()->startOfMonth();
+        $first = $som->format('d/m/Y');
+        $next  = $som->copy()->addMonthNoOverflow()->format('d/m/Y');
+        $meses = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+        $rows = $this->suiteqlQuery(
+            "SELECT COUNT(*) AS total_shipped, " .
+            "COUNT(CASE WHEN custbody_tek_fecha_entrega IS NOT NULL THEN 1 END) AS con_real, " .
+            "COUNT(CASE WHEN custbody_tek_fecha_entrega IS NOT NULL AND custbody_gep_fecha_entrega_estimado IS NOT NULL THEN 1 END) AS evaluables, " .
+            "COUNT(CASE WHEN custbody_tek_fecha_entrega IS NOT NULL AND custbody_gep_fecha_entrega_estimado IS NOT NULL AND custbody_tek_fecha_entrega <= custbody_gep_fecha_entrega_estimado THEN 1 END) AS a_tiempo " .
+            "FROM transaction " .
+            "WHERE type = 'SalesOrd' " .
+            "AND actualshipdate >= TO_DATE('{$first}','DD/MM/YYYY') " .
+            "AND actualshipdate < TO_DATE('{$next}','DD/MM/YYYY')"
+        );
+        if ($rows === null || !isset($rows[0])) {
+            return null;
+        }
+        $r      = $rows[0];
+        $eval   = (int) ($r['evaluables'] ?? 0);
+        $ontime = (int) ($r['a_tiempo'] ?? 0);
+
+        return [
+            'pct'           => $eval > 0 ? round($ontime / $eval * 100, 1) : null,
+            'n'             => $eval,
+            'a_tiempo'      => $ontime,
+            'evaluables'    => $eval,
+            'con_real'      => (int) ($r['con_real'] ?? 0),
+            'total_shipped' => (int) ($r['total_shipped'] ?? 0),
+            'periodo'       => $meses[$som->month],
+        ];
     }
 
     /**

@@ -114,6 +114,18 @@
             @endif
         </div>
     @endforeach
+    @php $e = $difot['entrega'] ?? null; @endphp
+    <div class="stat-card">
+        <div class="label">DIFOT Entrega</div>
+        @if($e && !is_null($e['pct']))
+            <div class="value" style="color: {{ $difotColor($e['pct']) }}">{{ $pctFmt($e['pct']) }}</div>
+            <div class="sub">{{ $e['a_tiempo'] }}/{{ $e['evaluables'] }} a tiempo · {{ $e['periodo'] }}</div>
+            <div class="sub" style="color:#6e7681">{{ $e['con_real'] }}/{{ $e['total_shipped'] }} con fecha real ({{ $e['total_shipped'] > 0 ? round($e['con_real'] / $e['total_shipped'] * 100, 1) : 0 }}%)</div>
+        @else
+            <div class="value" style="color:#8b949e">—</div>
+            <div class="sub">Pendiente</div>
+        @endif
+    </div>
 </div>
 
 @if($totals === null)
