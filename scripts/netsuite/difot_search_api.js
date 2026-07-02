@@ -10,8 +10,14 @@
  * them. We translate those specific checkbox filters into equivalent formulanumeric
  * filters, which reference the field via {field} and are accepted. Results are
  * identical to the saved search. POST { "searchID":"674" } (+ "debug":true).
+ *
+ * Also supports ad-hoc queries (added for DIFOT de entrega):
+ *   POST { "sql": "SELECT ... FROM transaction ..." }         -> N/query.runSuiteQL
+ *   POST { "search": { "type":"transaction",
+ *                      "filters":[{name,operator,values,formula,join}|[..]],
+ *                      "columns":[{name,summary,formula,label,join,func,sort}|"name"] } }
  */
-define(['N/search', 'N/log'], function (search, log) {
+define(['N/search', 'N/query', 'N/log'], function (search, query, log) {
 
   var CONVERT = { custbody_3k_goas_con_cuestiones: 1, custbody13: 1, custbody18: 1 };
 
@@ -63,10 +69,48 @@ define(['N/search', 'N/log'], function (search, log) {
     return out;
   }
 
+  function runSql(sql) {
+    var res = query.runSuiteQL({ query: sql });
+    var cols = [];
+    try { cols = res.columns.map(function (c) { return c.fieldId || c.alias || c.label; }); } catch (e) {}
+    return { columns: cols, rows: res.asMappedResults() };
+  }
+
+  function toColumn(c) {
+    if (typeof c === 'string') return search.createColumn({ name: c });
+    var spec = { name: c.name };
+    if (c.join) spec.join = c.join;
+    if (c.summary) spec.summary = c.summary;
+    if (c.formula) spec.formula = c.formula;
+    if (c.label) spec.label = c.label;
+    if (c.func) spec.function = c.func;
+    if (c.sort) spec.sort = c.sort;
+    return search.createColumn(spec);
+  }
+
+  function toFilter(f) {
+    if (Array.isArray(f)) return f;
+    return search.createFilter({
+      name: f.name, join: f.join, operator: f.operator,
+      values: f.values, formula: f.formula
+    });
+  }
+
+  function runAdhoc(def) {
+    var s = search.create({
+      type: def.type || 'transaction',
+      filters: (def.filters || []).map(toFilter),
+      columns: (def.columns || []).map(toColumn)
+    });
+    return { count: null, results: serialize(run(s)) };
+  }
+
   function post(request) {
     try {
+      if (request && request.sql) return runSql(request.sql);
+      if (request && request.search) return runAdhoc(request.search);
       var id = request && request.searchID;
-      if (!id) return { error: { name: 'INVALID_REQUEST', message: 'No searchID was specified.' } };
+      if (!id) return { error: { name: 'INVALID_REQUEST', message: 'Provide searchID, sql, or search.' } };
       var loaded = search.load({ id: id });
       if (request.debug) return { debug: introspect(loaded) };
       try {

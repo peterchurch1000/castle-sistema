@@ -163,11 +163,12 @@ class DashboardController extends Controller
             ->pluck('gp_pct', 'metric');
 
         $pipeline = $this->fetchPipeline();
+        $difot    = $this->fetchDifotEntrega();
 
         return view('dashboard', compact(
             'chartData', 'lastRefreshed', 'paceRatio', 'month', 'year',
             'activityChartData', 'activityLastRefreshed', 'quotaLastRefreshed', 'gp', 'pipeline',
-            'salesChart', 'activityChart'
+            'salesChart', 'activityChart', 'difot'
         ));
     }
 
@@ -582,25 +583,69 @@ class DashboardController extends Controller
 
     private function fetchPipeline(): ?array
     {
-        return Cache::store('file')->remember('sf_pipeline_v1', 600, function () {
+        return Cache::store('file')->remember('sf_pipeline_v3', 600, function () {
             $token = $this->getSalesforceToken();
             if (!$token) return null;
 
             $now   = Carbon::now('America/Argentina/Buenos_Aires');
             $first = $now->copy()->startOfMonth()->format('Y-m-d');
             $last  = $now->copy()->endOfMonth()->format('Y-m-d');
+            $yend  = $now->copy()->endOfYear()->format('Y-m-d');
 
+            // ExpectedRevenue = Amount * Probability (Salesforce-computed weighted value).
             $mes = $this->sfQuery($token,
-                "SELECT COUNT(Id) cnt, SUM(Amount) amt FROM Opportunity " .
+                "SELECT COUNT(Id) cnt, SUM(ExpectedRevenue) amt FROM Opportunity " .
                 "WHERE IsClosed = false AND CloseDate >= {$first} AND CloseDate <= {$last}");
             $tot = $this->sfQuery($token,
-                "SELECT COUNT(Id) cnt, SUM(Amount) amt FROM Opportunity WHERE IsClosed = false");
+                "SELECT COUNT(Id) cnt, SUM(ExpectedRevenue) amt FROM Opportunity " .
+                "WHERE IsClosed = false AND CloseDate >= {$first} AND CloseDate <= {$yend}");
 
             if ($mes === null || $tot === null) return null;
 
             return [
                 'previstos' => ['amt' => (float) ($mes[0]['amt'] ?? 0), 'cnt' => (int) ($mes[0]['cnt'] ?? 0)],
                 'pipeline'  => ['amt' => (float) ($tot[0]['amt'] ?? 0), 'cnt' => (int) ($tot[0]['cnt'] ?? 0)],
+            ];
+        });
+    }
+
+    /**
+     * DIFOT de entrega — on-time delivery rate for the last complete calendar month.
+     * Scope: Sales Orders with an Actual Ship Date (actualshipdate) in that month.
+     * On time = real delivery date (custbody_tek_fecha_entrega) on or before the
+     * estimated delivery date (custbody_gep_fecha_entrega_estimado). Only orders with
+     * BOTH dates are evaluable; rate = a_tiempo / evaluables. Returns null on failure.
+     */
+    private function fetchDifotEntrega(): ?array
+    {
+        $now   = Carbon::now('America/Argentina/Buenos_Aires');
+        $som   = $now->copy()->subMonthNoOverflow()->startOfMonth();
+        $first = $som->format('d/m/Y');
+        $next  = $som->copy()->addMonthNoOverflow()->format('d/m/Y');
+
+        return Cache::store('file')->remember("difot_entrega_{$som->format('Y_m')}", 3600, function () use ($first, $next, $som) {
+            $rows = $this->suiteqlQuery(
+                "SELECT COUNT(*) AS total_shipped, " .
+                "COUNT(CASE WHEN custbody_tek_fecha_entrega IS NOT NULL THEN 1 END) AS con_real, " .
+                "COUNT(CASE WHEN custbody_tek_fecha_entrega IS NOT NULL AND custbody_gep_fecha_entrega_estimado IS NOT NULL THEN 1 END) AS evaluables, " .
+                "COUNT(CASE WHEN custbody_tek_fecha_entrega IS NOT NULL AND custbody_gep_fecha_entrega_estimado IS NOT NULL AND custbody_tek_fecha_entrega <= custbody_gep_fecha_entrega_estimado THEN 1 END) AS a_tiempo " .
+                "FROM transaction " .
+                "WHERE type = 'SalesOrd' " .
+                "AND actualshipdate >= TO_DATE('{$first}','DD/MM/YYYY') " .
+                "AND actualshipdate < TO_DATE('{$next}','DD/MM/YYYY')"
+            );
+            if ($rows === null || !isset($rows[0])) return null;
+            $r      = $rows[0];
+            $eval   = (int) ($r['evaluables'] ?? 0);
+            $ontime = (int) ($r['a_tiempo'] ?? 0);
+            return [
+                'pct'           => $eval > 0 ? round($ontime / $eval * 100, 1) : null,
+                'a_tiempo'      => $ontime,
+                'evaluables'    => $eval,
+                'con_real'      => (int) ($r['con_real'] ?? 0),
+                'total_shipped' => (int) ($r['total_shipped'] ?? 0),
+                'mes'           => $som->month,
+                'anio'          => $som->year,
             ];
         });
     }

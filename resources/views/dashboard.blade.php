@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel de Ventas Castle</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+    <link rel="apple-touch-icon" href="/favicon-192.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -13,14 +16,14 @@
             color: #e6edf3;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
             min-height: 100vh;
-            padding: 24px;
+            padding: 10px 24px 24px;
         }
 
         .header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 28px;
+            margin-bottom: 14px;
             flex-wrap: wrap;
             gap: 12px;
         }
@@ -213,6 +216,7 @@
     // GP % per card (saved search 422 "% GP APROX"); null → not shown
     $gpFmt = fn($k) => !is_null($gp->get($k)) ? number_format($gp->get($k), 1) : null;
     $pipFmt = fn($n) => '$' . number_format($n / 1000, 1) . 'k';
+    $difotMes = $difot ? ucfirst($meses[$difot['mes']]) : '';
 @endphp
 
 <div class="header">
@@ -310,6 +314,19 @@
         <div class="sub">USD zona gris próx. mes</div>
     </div>
     <div class="stat-card">
+        <div class="stat-row"><span class="label">DIFOT de entrega ({{ $difotMes }})</span></div>
+        <div class="stat-row">
+            <span class="value" style="color: {{ !$difot || is_null($difot['pct']) ? '#8b949e' : ($difot['pct'] >= 90 ? '#3fb950' : ($difot['pct'] >= 75 ? '#d29922' : '#f85149')) }}">
+                {{ $difot && !is_null($difot['pct']) ? $difot['pct'] . '%' : '—' }}
+            </span>
+        </div>
+        <div class="sub">{{ $difot ? $difot['a_tiempo'] . '/' . $difot['evaluables'] . ' entregas a tiempo' : 'NetSuite no disponible' }}</div>
+        <div class="sub" style="color:#6e7681">{{ $difot && $difot['total_shipped'] > 0 ? $difot['con_real'] . '/' . $difot['total_shipped'] . ' con fecha real (' . round($difot['con_real'] / $difot['total_shipped'] * 100, 1) . '%)' : '' }}</div>
+    </div>
+    {{-- Ocultas temporalmente: cambiar $showActivityCards a true para volver a mostrarlas --}}
+    @php($showActivityCards = false)
+    @if($showActivityCards)
+    <div class="stat-card">
         <div class="stat-row"><span class="label">Score Actividades</span></div>
         <div class="stat-row">
             <span class="value" style="color: {{ $actAttain >= $pacePercent ? '#3fb950' : ($hasActivity ? '#f85149' : '#8b949e') }}">
@@ -325,6 +342,7 @@
         </div>
         <div class="sub">{{ $pacePercent }}% transcurrido</div>
     </div>
+    @endif
 </div>
 
 <div class="charts-row">

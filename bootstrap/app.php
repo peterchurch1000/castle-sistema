@@ -12,6 +12,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->validateCsrfTokens(except: ['/refresh', '/refresh-quotas', '/refresh-activities']);
+        $middleware->append(\App\Http\Middleware\BasicAuth::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
