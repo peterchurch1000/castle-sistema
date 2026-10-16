@@ -50,4 +50,18 @@ return [
         'client_secret' => env('SF_CLIENT_SECRET'),
     ],
 
+    /*
+    | WhatsApp Cloud API (Meta) -> Salesforce mirror. Inbound webhook only; we
+    | never send. app_secret verifies Meta's X-Hub-Signature-256 on each POST;
+    | verify_token answers Meta's GET subscription challenge; business_number is
+    | the connected number (digits only, no '+') used to tell inbound from
+    | outbound (Coexistence echoes). See
+    | App\Http\Controllers\Api\WhatsAppWebhookController.
+    */
+    'whatsapp' => [
+        'app_secret'      => env('WHATSAPP_APP_SECRET'),
+        'verify_token'    => env('WHATSAPP_VERIFY_TOKEN'),
+        'business_number' => preg_replace('/\D/', '', (string) env('WHATSAPP_BUSINESS_NUMBER', '')),
+    ],
+
 ];

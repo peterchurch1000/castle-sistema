@@ -240,6 +240,9 @@
             <span class="value" style="color: #58a6ff">{{ $pipeline ? $pipFmt($pipeline['previstos']['amt']) : '—' }}</span>
         </div>
         <div class="sub">{{ $pipeline ? $pipeline['previstos']['cnt'] . ' oportunidades · cierre este mes' : 'Salesforce no disponible' }}</div>
+        @if($pipeline)
+        <div class="sub">Nuevas {{ $pipFmt($pipeline['previstos']['new']['amt']) }} ({{ $pipeline['previstos']['new']['cnt'] }}) · Repetitivas {{ $pipFmt($pipeline['previstos']['repeat']['amt']) }} ({{ $pipeline['previstos']['repeat']['cnt'] }})</div>
+        @endif
     </div>
     <div class="stat-card">
         <div class="stat-row"><span class="label">Pipeline Total</span></div>
@@ -247,6 +250,9 @@
             <span class="value" style="color: #58a6ff">{{ $pipeline ? $pipFmt($pipeline['pipeline']['amt']) : '—' }}</span>
         </div>
         <div class="sub">{{ $pipeline ? $pipeline['pipeline']['cnt'] . ' oportunidades abiertas' : 'Salesforce no disponible' }}</div>
+        @if($pipeline)
+        <div class="sub">Nuevas {{ $pipFmt($pipeline['pipeline']['new']['amt']) }} ({{ $pipeline['pipeline']['new']['cnt'] }}) · Repetitivas {{ $pipFmt($pipeline['pipeline']['repeat']['amt']) }} ({{ $pipeline['pipeline']['repeat']['cnt'] }})</div>
+        @endif
     </div>
     <div class="stat-card">
         <div class="stat-row">

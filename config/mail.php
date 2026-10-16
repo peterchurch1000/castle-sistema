@@ -49,6 +49,15 @@ return [
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
         ],
 
+        // Gmail REST API transport (registered in AppServiceProvider). Used for the
+        // monthly dashboard email because outbound SMTP is blocked on this host.
+        'gmail_api' => [
+            'transport' => 'gmail_api',
+            'client_id' => env('GMAIL_API_CLIENT_ID'),
+            'client_secret' => env('GMAIL_API_CLIENT_SECRET'),
+            'refresh_token' => env('GMAIL_API_REFRESH_TOKEN'),
+        ],
+
         'ses' => [
             'transport' => 'ses',
         ],

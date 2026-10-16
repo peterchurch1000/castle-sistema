@@ -15,6 +15,16 @@ class BasicAuth
             return $next($request);
         }
 
+        // API routes authenticate via Supabase JWT; skip Basic auth.
+        if ($request->is('api/*')) {
+            return $next($request);
+        }
+
+        // The login form and its handlers must stay reachable.
+        if ($request->is('login') || $request->is('logout')) {
+            return $next($request);
+        }
+
         $user = (string) config('dashboard.auth_user');
         $pass = (string) config('dashboard.auth_pass');
 
@@ -23,13 +33,18 @@ class BasicAuth
             return $next($request);
         }
 
+        // Form login: session flag set by the POST /login handler.
+        if ($request->hasSession() && $request->session()->get('castle_authed') === true) {
+            return $next($request);
+        }
+
+        // Basic-auth header still accepted for cron / curl / scripted callers.
         if (hash_equals($user, (string) $request->getUser())
             && hash_equals($pass, (string) $request->getPassword())) {
             return $next($request);
         }
 
-        return response('Autenticacion requerida.', 401, [
-            'WWW-Authenticate' => 'Basic realm="Panel Castle"',
-        ]);
+        // Browsers get the in-page login form instead of a native popup.
+        return redirect()->guest('/login');
     }
 }

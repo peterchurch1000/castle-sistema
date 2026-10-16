@@ -2,18 +2,24 @@
 
 namespace Tests\Feature;
 
-// use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class ExampleTest extends TestCase
 {
     /**
-     * A basic test example.
+     * The dashboard is protected by HTTP Basic auth (App\Http\Middleware\BasicAuth):
+     * an unauthenticated request to the home route must be challenged with 401.
+     * A fixed password is forced via config so the test does not depend on the
+     * container's DASHBOARD_AUTH_* environment. The middleware short-circuits before
+     * the controller, so this needs no database schema.
      */
-    public function test_the_application_returns_a_successful_response(): void
+    public function test_home_route_requires_basic_auth(): void
     {
-        $response = $this->get('/');
+        config([
+            'dashboard.auth_user' => 'castle',
+            'dashboard.auth_pass' => 'secret',
+        ]);
 
-        $response->assertStatus(200);
+        $this->get('/')->assertStatus(401);
     }
 }

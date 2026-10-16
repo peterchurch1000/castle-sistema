@@ -35,4 +35,14 @@ return [
         ],
     ],
 
+    // Delegated Microsoft Graph for Peter's Adlux mailbox (read-only on Castle).
+    // Same Entra app as the Adlux server ("AdLux Autonomy Graph Integration").
+    // The refresh token (confidential client, offline_access) works from any host;
+    // the live token is stored in storage/app/graph-token.json, not here.
+    'graph_delegated' => [
+        'tenant_id'     => env('GRAPH_DEL_TENANT_ID'),
+        'client_id'     => env('GRAPH_DEL_CLIENT_ID'),
+        'client_secret' => env('GRAPH_DEL_CLIENT_SECRET'),
+    ],
+
 ];

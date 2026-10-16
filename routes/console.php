@@ -15,6 +15,7 @@ $tz = 'America/Argentina/Buenos_Aires';
 
 $isWorkingHours = function () use ($tz): bool {
     $now = now($tz);
+
     return $now->isWeekday() && $now->hour >= 8 && $now->hour < 20;
 };
 
@@ -46,3 +47,50 @@ Schedule::command('castle:refresh --only=activities')
     ->timezone($tz)
     ->when(fn () => ! $isWorkingHours())
     ->withoutOverlapping(20);
+
+// ── DIFOT cache warm (task 363) ──────────────────────────────────────────────
+// Warm the /operaciones DIFOT cards (NetSuite: 5 SuiteQL + RESTlet script 1503)
+// on their own staggered cadence so page loads always read a warm DB cache and
+// never call NetSuite directly. TTL is 45 min (see DifotService); warming every
+// 15 min keeps a comfortable margin. Minutes 7/22/37/52 sit OFF the 5-minute
+// sales-refresh marks to minimise NetSuite account-wide concurrency collisions.
+Schedule::command('castle:refresh --only=difot')
+    ->cron('7,22,37,52 * * * *')
+    ->timezone($tz)
+    ->withoutOverlapping(15);
+
+// ── Operaciones delivery-split cache warm ────────────────────────────────────
+// Warm the /operaciones "Monto por entregar" totals + by-rep split (NetSuite
+// SuiteQL via RESTlet 1503) so page loads read a warm DB cache with stale
+// fallback. Same 15-min cadence as DIFOT; minutes 4/19/34/49 sit off the sales
+// (0/5/...), DIFOT (7/22/37/52) and pipeline (11/26/41/56) marks.
+Schedule::command('castle:refresh --only=operaciones')
+    ->cron('4,19,34,49 * * * *')
+    ->timezone($tz)
+    ->withoutOverlapping(15);
+
+// Salesforce pipeline warm — same idea, offset again to 11/26/41/56 so it does
+// not collide with the DIFOT or sales/activities jobs.
+Schedule::command('castle:refresh --only=pipeline')
+    ->cron('11,26,41,56 * * * *')
+    ->timezone($tz)
+    ->withoutOverlapping(15);
+
+// ── Monthly dashboard screenshot email (task 246, requested by Luciano) ───────
+// 23:00 on the LAST calendar day of each month (ART). Gated by the
+// MONTHLY_DASHBOARD_EMAIL_ENABLED env flag so it stays off until enabled.
+Schedule::command('dashboards:email-monthly')
+    ->dailyAt('23:00')
+    ->timezone($tz)
+    ->when(fn () => now($tz)->isLastOfMonth())
+    ->withoutOverlapping(30);
+
+// ── Follow-up circuit: surface chase-due tasks (Stage C) ─────────────────────
+// Each weekday morning (ART), flip any follow-up whose reply window lapsed with
+// no response to queued + due-today, so the autonomy loop drafts a reminder to
+// the contact in Peter's voice. See memory followup-circuit.
+Schedule::command('comms:chase-due --surface')
+    ->weekdays()
+    ->dailyAt('07:30')
+    ->timezone($tz)
+    ->withoutOverlapping(30);

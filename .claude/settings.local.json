@@ -1,11 +1,11 @@
 {
-  "enableAllProjectMcpServers": true,
   "permissions": {
     "allow": [
       "Bash(*)",
       "Read(*)",
       "Save(*)",
       "WebSearch",
+      "WebFetch",
       "WebFetch(domain:apisupport.myob.com)",
       "WebFetch(domain:developer.myob.com)",
       "WebFetch(domain:support.databuzz.com.au)",
@@ -23,9 +23,19 @@
       "mcp__playwright__browser_take_screenshot",
       "mcp__playwright__browser_console_messages",
       "Bash(cat)",
-      "Read(//root/**)"
+      "Read(//root/**)",
+      "mcp__playwright__browser_network_requests",
+      "mcp__playwright__browser_file_upload",
+      "mcp__playwright__browser_select_option",
+      "mcp__playwright__browser_hover",
+      "mcp__playwright__browser_find",
+      "Bash(ssh root@170.64.248.224:*)",
+      "Bash(ssh -i /home/bridge-peter/.ssh/id_rsa_PBC root@170.64.248.224:*)",
+      "Bash(ssh:*)",
+      "mcp__playwright__browser_run_code_unsafe"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "hooks": {
     "PreToolUse": [
       {
