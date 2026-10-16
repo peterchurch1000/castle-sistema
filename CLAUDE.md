@@ -79,6 +79,18 @@ OAUTH_VERSION=1.0
 
 **Applies ONLY when this room is working a specific Organiser task** — i.e. it was opened from a task ("+ New Room"/"+ New Conference Room" on a task), or you were explicitly told to work `task-NNN`. In an ordinary chat with no associated task, ignore this section entirely.
 
+### Finding your associated task
+
+The room↔task link is authoritative in the **`task_rooms`** table, keyed by your `CCB_ROOM_KEY` (this room's session id) — NOT in `~/workspace/tasks/`, where the task `.md` is often absent. Resolve it directly before doing anything task-scoped (raising a question, marking done):
+
+```bash
+source ~/autonomy-lib-db.sh
+TID=$(dbq -e "SELECT task_id FROM task_rooms WHERE room_key='$CCB_ROOM_KEY' ORDER BY seq DESC LIMIT 1;")
+dbq -e "SELECT bridge_short_id,title,done,bridge_file FROM tasks WHERE id='$TID';"   # bridge_short_id = the NNN you see in the UI
+```
+
+If that returns a row, you ARE working an associated task even if no `task-NNN.md` exists locally. `~/gsd-status.sh done` already uses this same link to flip `tasks.done` — so declaring `done` now genuinely completes the task row.
+
 When you are working an associated task and you need a **decision, approval, or information from Peter to go further**, do NOT just ask in the chat. You yourself surface it as a red-dot card so it shows on the task row (❓ badge) and in Details → Questions — the room declares its own question, in this exact format, rather than a script inferring it after the fact:
 
 ```bash
@@ -97,6 +109,29 @@ Rules:
 - **Format exactly:** line 1 = the objective in ≤15 words; a blank line; then ONE question of ~85 words (≤100 words total including the objective line). Keep long detail (diffs, findings) in the task's Loop Log, not in the question.
 - Re-asking an answered or still-pending question is auto-suppressed by `room-ask.sh` (it prints `suppressed-*`) — never rephrase and re-ask; if suppressed, just wait.
 - The room declares its own question and status directly — no background loop or script infers it. `room-ask.sh` applies the same deterministic anti-loop guards (post-answer quiet period + normalized dedup), and a long-running associated room keeps working across many turns.
+<!-- QFORMAT_V1:START -->
+### How to present the question in chat (HTML)
+
+In a GSD-loop room, whenever you put a question to Peter in the chat, render it with this EXACT HTML. The bubble renderer runs `marked` with raw HTML passed straight through (no sanitiser), so inline `style` works — emit it as raw HTML, do NOT wrap it in a code fence. Still only ONE question, and this is the chat presentation that accompanies the `room-ask.sh` card; it does not replace it.
+
+```html
+<div style="font-size:1.3em;font-weight:700;margin:0;">Objective</div>
+<div style="margin:2px 0 0;">{overarching objective — 15 words max}</div>
+
+<div style="font-size:1.3em;font-weight:700;margin:20px 0 0;">Question</div>
+<div style="margin:2px 0 0;">{the ~85-word explanation; use <ul><li>…</li></ul> for bullets and <b>…</b> for emphasis}</div>
+
+<div style="margin:14px 0 0;">{the single one-line question?}</div>
+```
+
+Styling is fixed and must not drift:
+- **Objective** and **Question** are `1.3em` bold headings (larger than body text); no word "The" before "Question".
+- The paragraph sits tight directly under each heading — no blank line (`margin:2px` top).
+- A larger gap (`margin-top:20px`) sits above **Question**, where a divider would otherwise be — there is NO horizontal rule.
+- One line's space (`margin-top:14px`) before the final one-line question.
+
+<!-- QFORMAT_V1:END -->
+
 ### Declaring your state (GSD Loop)
 
 By default every task is **in the GSD Loop** — the regime where the room reports its own status and formats its own questions. A task opts out via the single **GSD Loop** tick on its menu (frontmatter `gsd_loop: off`); for an opted-out task, skip this whole section.
