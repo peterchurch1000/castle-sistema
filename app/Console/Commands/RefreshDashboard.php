@@ -5,11 +5,12 @@ namespace App\Console\Commands;
 use App\Http\Controllers\DashboardController;
 use App\Services\DifotService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Log;
 
 class RefreshDashboard extends Command
 {
-    protected $signature = 'castle:refresh {--only= : Limit to one of: sales, activities, difot, operaciones, pipeline}';
+    protected $signature = 'castle:refresh {--only= : Limit to one of: sales, quotas, activities, difot, operaciones, pipeline}';
 
     protected $description = 'Pull fresh dashboard data from NetSuite + Salesforce APIs (sales, quotas, activities, DIFOT, pipeline)';
 
@@ -19,15 +20,19 @@ class RefreshDashboard extends Command
         $all = $only === null;
         $ok = true;
 
-        // Sales + quotas (NetSuite) — paired.
+        // Sales (NetSuite).
         if ($all || $only === 'sales') {
             $sales = $controller->refresh()->getData(true);
             $this->report('sales', $sales);
             $ok = $ok && ($sales['success'] ?? false);
+        }
 
-            $quotas = $controller->refreshQuotas()->getData(true);
-            $this->report('quotas', $quotas);
-            $ok = $ok && ($quotas['success'] ?? false);
+        // Quotas — loaded from the committed JSON (NetSuite 2026.2 removed the
+        // `quota` record from SuiteQL). See App\Console\Commands\SyncQuotas.
+        if ($all || $only === 'quotas') {
+            $code = Artisan::call('castle:sync-quotas');
+            $this->report('quotas', ['success' => $code === 0]);
+            $ok = $ok && ($code === 0);
         }
 
         // Activities (Salesforce).

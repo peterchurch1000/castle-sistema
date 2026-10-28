@@ -33,6 +33,12 @@ Schedule::command('castle:refresh --only=sales')
     ->when(fn () => ! $isWorkingHours())
     ->withoutOverlapping(20);
 
+// Quotas load from the committed JSON (NetSuite 2026.2 dropped the quota record).
+Schedule::command('castle:refresh --only=quotas')
+    ->dailyAt('07:30')
+    ->timezone($tz)
+    ->withoutOverlapping(10);
+
 // Activities come from Salesforce. Counts move slowly, so a coarser cadence
 // (15 min in business hours, 30 min off-hours) cuts Salesforce API volume ~85%.
 Schedule::command('castle:refresh --only=activities')
