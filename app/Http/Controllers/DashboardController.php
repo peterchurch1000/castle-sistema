@@ -645,9 +645,12 @@ class DashboardController extends Controller
     /** READ path (page loads): cached value, compute on miss (stores only on ok). */
     private function fetchPipeline(): ?array
     {
-        $cached = Cache::get('sf_pipeline_v5');
-
-        return $cached !== null ? $cached : $this->refreshPipeline()['value'];
+        // Serve the scheduler-warmed cache; fall back to the non-expiring
+        // last-good copy. Never fetch from Salesforce inline on render —
+        // castle:refresh --only=pipeline warms it every 15 min. Keeps page
+        // loads fast and immune to Salesforce latency/outages (the view
+        // degrades to "Salesforce no disponible").
+        return Cache::get('sf_pipeline_v5') ?? Cache::get('sf_pipeline_v5:lastgood');
     }
 
     /**
@@ -669,14 +672,15 @@ class DashboardController extends Controller
             $value = $this->computePipeline();
             if ($value !== null) {
                 Cache::put($key, $value, now()->addMinutes(45));
+                Cache::forever($key.':lastgood', $value);
 
                 return ['status' => 'ok', 'value' => $value];
             }
 
             // failed upstream — keep existing (may be null), report failure
-            return ['status' => 'failed', 'value' => Cache::get($key)];
+            return ['status' => 'failed', 'value' => Cache::get($key) ?? Cache::get($key.':lastgood')];
         } catch (LockTimeoutException $e) {
-            return ['status' => 'failed', 'value' => Cache::get($key)];
+            return ['status' => 'failed', 'value' => Cache::get($key) ?? Cache::get($key.':lastgood')];
         } finally {
             optional($lock)->release();
         }
@@ -1257,16 +1261,20 @@ class DashboardController extends Controller
 
     private function getArgentinaHolidays(int $year): array
     {
-        try {
-            $response = Http::timeout(5)->get("https://date.nager.at/api/v3/PublicHolidays/{$year}/AR");
-            if ($response->successful()) {
-                return array_column($response->json(), 'date');
+        // Cache per year so a page render never waits on the holidays API. The
+        // hardcoded list is an accurate fallback, so caching it briefly is harmless.
+        return Cache::remember("ar_holidays_{$year}", now()->addDays(30), function () use ($year) {
+            try {
+                $response = Http::timeout(5)->get("https://date.nager.at/api/v3/PublicHolidays/{$year}/AR");
+                if ($response->successful()) {
+                    return array_column($response->json(), 'date');
+                }
+            } catch (\Exception $e) {
+                // fall through to hardcoded list
             }
-        } catch (\Exception $e) {
-            // fall through to hardcoded list
-        }
 
-        return $this->hardcodedHolidays($year);
+            return $this->hardcodedHolidays($year);
+        });
     }
 
     private function hardcodedHolidays(int $year): array
