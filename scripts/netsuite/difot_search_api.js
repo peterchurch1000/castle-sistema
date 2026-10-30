@@ -3,13 +3,14 @@
  * @NScriptType Restlet
  * @NModuleScope Public
  *
- * DIFOT Saved Search API (Castle). Loads a stored saved search and re-runs it via
- * search.create(filterExpression, columns). Certain 3K-SuiteApp checkbox body
- * fields are not usable as direct search filters under the integration role
- * (SSS_INVALID_SRCH_FILTER), although the UI/Administrator and SuiteQL can use
- * them. We translate those specific checkbox filters into equivalent formulanumeric
- * filters, which reference the field via {field} and are accepted. Results are
- * identical to the saved search. POST { "searchID":"674" } (+ "debug":true).
+ * DIFOT Saved Search API (Castle). Loads a stored saved search. Searches carrying
+ * 3K-SuiteApp checkbox body fields that are not usable as direct search filters
+ * under the integration role (SSS_INVALID_SRCH_FILTER) are re-created via
+ * search.create(filterExpression, columns) with those checkbox filters translated
+ * into equivalent formulanumeric filters. ALL OTHER searches are run NATIVELY
+ * (search.load().run()) so results match NetSuite's own engine exactly -- a
+ * re-created search.create silently drops certain credit memos that the native
+ * engine nets (e.g. saved search 2305). POST { "searchID":"674" } (+ "debug":true).
  *
  * Also supports ad-hoc queries (added for DIFOT de entrega):
  *   POST { "sql": "SELECT ... FROM transaction ..." }         -> N/query.runSuiteQL
@@ -113,6 +114,19 @@ define(['N/search', 'N/query', 'N/log'], function (search, query, log) {
       if (!id) return { error: { name: 'INVALID_REQUEST', message: 'Provide searchID, sql, or search.' } };
       var loaded = search.load({ id: id });
       if (request.debug) return { debug: introspect(loaded) };
+      // Searches carrying 3K CONVERT checkbox filters (e.g. DIFOT 674) must be
+      // re-created via search.create with those filters translated. All other
+      // searches are run NATIVELY so results match NetSuite's own engine exactly
+      // (e.g. 2305 nets credit memos that a re-created search.create silently drops).
+      var hasConvert = false;
+      try {
+        var fe = loaded.filterExpression || [];
+        for (var fi = 0; fi < fe.length; fi++) { if (Array.isArray(fe[fi]) && CONVERT[fe[fi][0]]) { hasConvert = true; break; } }
+      } catch (eF) {}
+      if (!hasConvert) {
+        try { return { results: serialize(run(loaded)), via: 'native' }; }
+        catch (eN) { /* fall through to transformed re-creation path */ }
+      }
       try {
         var cols = loaded.columns.slice();
         try { cols.push(search.createColumn({ name: 'internalid', summary: search.Summary.COUNT, label: '__cnt' })); } catch (eC) {}
